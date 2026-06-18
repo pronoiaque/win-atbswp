@@ -10,6 +10,11 @@ name: Build Windows EXE
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Create/refresh a Release with this tag (e.g. v0.3.1). Leave empty to only build an artifact."
+        required: false
+        default: ""
   push:
     tags:
       - "v*"
@@ -60,9 +65,22 @@ jobs:
           path: dist/win-atbswp.exe
           if-no-files-found: error
 
+      # On a tag push, use the tag name; on a manual run, use the input (if any).
+      - name: Resolve release tag
+        id: rel
+        shell: bash
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.rel.outputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: ${{ steps.rel.outputs.tag }}
           files: dist/win-atbswp.exe
           generate_release_notes: true
