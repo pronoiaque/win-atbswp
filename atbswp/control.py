@@ -22,7 +22,7 @@ import shutil
 import sys
 import tempfile
 import time
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from threading import Event
 from threading import Thread
@@ -762,7 +762,11 @@ class AutoReplayCtrl:
 
     def start(self):
         settings.CONFIG["DEFAULT"]["Auto Replay"] = "True"
-        self.timer.Start(self.interval_seconds() * 1000)
+        interval = self.interval_seconds()
+        # Start a fresh monitoring session for this auto-replay run.
+        self.main_dialog.monitor.reset(
+            settings.CONFIG.get("DEFAULT", "Current Scenario"), interval)
+        self.timer.Start(interval * 1000)
         # Fire a first replay right away.
         self._trigger_replay()
 
@@ -783,7 +787,82 @@ class AutoReplayCtrl:
         if play_button.Value:
             # A replay is already in progress, skip this tick.
             return
+        # Start the chrono for this loop, then press Play.
+        self.main_dialog.monitor.start_loop()
         play_button.Value = True
         btn_event = wx.CommandEvent(wx.wxEVT_TOGGLEBUTTON)
         btn_event.EventObject = play_button
         self.main_dialog.pbc.action(btn_event)
+
+
+def format_duration(seconds):
+    """Human-friendly duration: seconds below a minute, minutes above."""
+    if seconds < 60:
+        value = f"{seconds:.1f}".rstrip("0").rstrip(".")
+        return f"{value} s"
+    value = f"{seconds / 60:.1f}".rstrip("0").rstrip(".")
+    return f"{value} min"
+
+
+class MonitorCtrl:
+    """Measure the response time of a scenario, one auto-replay loop at a time.
+
+    Rather than timing every individual action (brittle and noisy), the chrono
+    starts when a loop begins and stops when the replay completes (the input's
+    response is validated). Each loop is reported with its scheduled window
+    (based on the auto-replay interval) and its measured duration.
+    """
+
+    def __init__(self):
+        self.scenario = ""
+        self.interval = 1800
+        self.loops = []          # list of {index, start, end, duration}
+        self._loop_start = None
+
+    def reset(self, scenario, interval):
+        """Begin a fresh monitoring session."""
+        self.scenario = scenario or "(aucun)"
+        self.interval = interval
+        self.loops = []
+        self._loop_start = None
+
+    def start_loop(self):
+        """Mark the beginning of a loop (chrono start)."""
+        self._loop_start = datetime.now()
+
+    def end_loop(self):
+        """Mark the end of the current loop (chrono stop) and record it."""
+        if self._loop_start is None:
+            return
+        end = datetime.now()
+        self.loops.append({
+            "index": len(self.loops) + 1,
+            "start": self._loop_start,
+            "end": end,
+            "duration": (end - self._loop_start).total_seconds(),
+        })
+        self._loop_start = None
+
+    def has_data(self):
+        return bool(self.loops)
+
+    def report_text(self):
+        """Build the textual response-time report."""
+        interval_min = max(1, round(self.interval / 60))
+        header = (f'Scénario "{self.scenario}" ; {len(self.loops)} '
+                  f'boucle(s) de {interval_min} minutes (auto-play interval)')
+        lines = [header, ""]
+        if not self.loops:
+            lines.append("Aucune boucle enregistrée pour le moment.")
+            return "\n".join(lines)
+        for loop in self.loops:
+            window_end = loop["start"] + timedelta(seconds=self.interval)
+            lines.append(
+                f'Boucle {loop["index"]} : '
+                f'de {loop["start"]:%H:%M} à {window_end:%H:%M} '
+                f'-> {format_duration(loop["duration"])}')
+        # A short summary line with the average response time.
+        avg = sum(loop["duration"] for loop in self.loops) / len(self.loops)
+        lines.append("")
+        lines.append(f"Temps de réponse moyen : {format_duration(avg)}")
+        return "\n".join(lines)

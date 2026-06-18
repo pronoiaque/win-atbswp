@@ -66,3 +66,47 @@ class SliderDialog(wx.Dialog):
     def value(self, value):
         """Setter."""
         self._value = value
+
+
+class ReportDialog(wx.Dialog):
+    """Show a text report and let the user save it to a file."""
+
+    def __init__(self, parent, title, text):
+        super(ReportDialog, self).__init__(
+            parent, title=title, size=(560, 420),
+            style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self._text = text
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        self.text_ctrl = wx.TextCtrl(
+            self, value=text,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
+        # Monospace font so the loop list lines up like a table.
+        self.text_ctrl.SetFont(
+            wx.Font(10, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL,
+                    wx.FONTWEIGHT_NORMAL))
+        sizer.Add(self.text_ctrl, 1, wx.EXPAND | wx.ALL, 8)
+
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        save_button = wx.Button(self, label="Enregistrer…")
+        close_button = wx.Button(self, wx.ID_CLOSE, "Fermer")
+        buttons.Add(save_button, 0, wx.RIGHT, 6)
+        buttons.Add(close_button, 0)
+        sizer.Add(buttons, 0, wx.ALIGN_RIGHT | wx.ALL, 8)
+
+        self.SetSizer(sizer)
+        save_button.Bind(wx.EVT_BUTTON, self.on_save)
+        close_button.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_CLOSE))
+
+    def on_save(self, event):
+        """Save the report to a UTF-8 text file."""
+        with wx.FileDialog(
+                self, "Enregistrer le rapport", defaultFile="rapport.txt",
+                wildcard="Fichiers texte (*.txt)|*.txt",
+                style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as file_dialog:
+            if file_dialog.ShowModal() == wx.ID_CANCEL:
+                return
+            try:
+                with open(file_dialog.GetPath(), "w", encoding="utf-8") as f:
+                    f.write(self._text)
+            except IOError:
+                wx.LogError("Impossible d'enregistrer le rapport.")

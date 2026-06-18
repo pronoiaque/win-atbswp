@@ -30,6 +30,8 @@ import settings
 
 import theme
 
+from custom_widgets import ReportDialog
+
 import wx
 import wx.adv
 
@@ -204,13 +206,17 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
                                              style=wx.ALIGN_CENTRE_HORIZONTAL)
         self.play_button.SetToolTip(self.app_text[3])
 
-        # --- Auto replay toggle ----------------------------------------
+        # --- Auto replay toggle + response-time monitoring -------------
+        self.monitor = control.MonitorCtrl()
         self.arc = control.AutoReplayCtrl(self)
         self.auto_button = wx.ToggleButton(self, wx.ID_ANY, label="Auto")
         theme.style_button(self.auto_button, theme.AMBER, theme.DARK)
         self.auto_button.SetToolTip("Automatically replay on a fixed schedule")
         self.auto_status = wx.StaticText(self, label="")
         self.auto_status.SetForegroundColour(theme.DARK)
+        self.report_button = wx.Button(self, wx.ID_ANY, label="Report")
+        theme.style_button(self.report_button, theme.BLUE)
+        self.report_button.SetToolTip("Scenario response-time report")
 
         self.compile_button = wx.BitmapButton(self,
                                               wx.ID_ANY,
@@ -272,6 +278,9 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         # Auto replay
         self.Bind(wx.EVT_TOGGLEBUTTON, self.on_auto_toggle, self.auto_button)
 
+        # Response-time report
+        self.Bind(wx.EVT_BUTTON, self.on_report, self.report_button)
+
         # compile_button_ctrl
         self.Bind(wx.EVT_BUTTON, control.CompileCtrl.compile,
                   self.compile_button)
@@ -328,6 +337,7 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         buttons_sizer.Add(self.record_button, 0, 0, 0)
         buttons_sizer.Add(self.play_button, 0, 0, 0)
         buttons_sizer.Add(self.auto_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 4)
+        buttons_sizer.Add(self.report_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 4)
         buttons_sizer.Add(self.compile_button, 0, 0, 0)
         buttons_sizer.Add(self.settings_button, 0, 0, 0)
         buttons_sizer.Add(self.help_button, 0, 0, 0)
@@ -482,6 +492,18 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         self.remaining_plays.Label = str(event.count) if event.count > 0 else \
             str(settings.CONFIG.getint('DEFAULT', 'Repeat Count'))
         self.remaining_plays.Update()
+        # The replay is fully finished (input response validated): stop the
+        # chrono for this monitoring loop.
+        if not event.toggle_value:
+            self.monitor.end_loop()
+
+    def on_report(self, event):
+        """Display (and optionally save) the response-time report."""
+        dlg = ReportDialog(self, "Rapport de temps de réponse",
+                           self.monitor.report_text())
+        dlg.ShowModal()
+        dlg.Destroy()
+        self.panel.SetFocus()
 
     def on_exit_app(self, event):
         """Clean exit saving the settings."""
