@@ -28,16 +28,44 @@ VERSION = "0.3.1"
 YEAR = date.today().strftime("%Y")
 
 
+# Default values used both to bootstrap a fresh config file and to backfill
+# keys that are missing when the user upgrades from a previous version.
+DEFAULTS = {
+    "Fast Play Speed": "False",
+    "Infinite Playback": "False",
+    "Repeat Count": "1",
+    "Recording Hotkey": "348",
+    "Playback Hotkey": "349",
+    "Always On Top": "True",
+    "Language": "en",
+    "Recording Timer": "0",
+    "Mouse Speed": "21",
+    # Name of the currently active scenario (session). Empty means none.
+    "Current Scenario": "",
+    # Auto-replay: replay the active capture on a fixed schedule.
+    "Auto Replay": "False",
+    # Interval between two automatic replays, in seconds (default: 30 minutes).
+    "Auto Replay Interval": "1800",
+}
+
+
+# Folder where the named scenarios (sessions) are stored, one .py capture each.
+SCENARIOS_DIRNAME = "atbswp_scenarios"
+
+
 # Check the location of the configuration file, default to the home directory
 filename = "atbswp.cfg"
 if platform.system() == "Linux":
-    config_location = os.path.join(os.environ.get("HOME"), ".config")
+    config_dir = os.path.join(os.environ.get("HOME"), ".config")
 elif platform.system() == "Windows":
-    config_location = os.environ.get("APPDATA")
+    config_dir = os.environ.get("APPDATA")
 else:
-    config_location = os.environ.get("HOME")
+    config_dir = os.environ.get("HOME")
 
-config_location = os.path.join(config_location, filename)
+config_location = os.path.join(config_dir, filename)
+
+# Scenarios live next to the configuration file.
+SCENARIOS_DIR = os.path.join(config_dir, SCENARIOS_DIRNAME)
 
 
 def save_config():
@@ -45,18 +73,23 @@ def save_config():
         CONFIG.write(config_file)
 
 
+def _ensure_defaults():
+    """Make sure every expected key exists (handles config upgrades)."""
+    for key, value in DEFAULTS.items():
+        if not CONFIG.has_option("DEFAULT", key):
+            CONFIG["DEFAULT"][key] = value
+
+
 try:
     with open(config_location) as config_file:
         CONFIG.read(config_location)
 except:
-    CONFIG["DEFAULT"] = {
-        "Fast Play Speed": False,
-        "Infinite Playback": False,
-        "Repeat Count": 1,
-        "Recording Hotkey": 348,
-        "Playback Hotkey": 349,
-        "Always On Top": True,
-        "Language": "en",
-        "Recording Timer": 0,
-        "Mouse Speed": 21,
-    }
+    CONFIG["DEFAULT"] = dict(DEFAULTS)
+
+_ensure_defaults()
+
+# Make sure the scenarios folder exists.
+try:
+    os.makedirs(SCENARIOS_DIR, exist_ok=True)
+except OSError:
+    pass

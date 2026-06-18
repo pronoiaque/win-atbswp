@@ -42,6 +42,7 @@ import wx.lib.newevent as NE
 
 TMP_PATH = os.path.join(tempfile.gettempdir(),
                         "atbswp-" + date.today().strftime("%Y%m%d"))
+SCENARIO_EXT = ".py"
 HEADER = (
     f"#!/bin/env python3\n"
     f"# Created by atbswp v{settings.VERSION} "
@@ -89,6 +90,10 @@ class FileChooserCtrl:
             self._capture = self.load_content(dlg.GetPath())
             with open(TMP_PATH, 'w') as f:
                 f.write(self._capture)
+            # Mirror the loaded capture into the active scenario, if any.
+            parent = event.EventObject.Parent
+            if getattr(parent, "scc", None) is not None:
+                parent.scc.persist()
         event.EventObject.Parent.panel.SetFocus()
         dlg.Destroy()
 
@@ -369,6 +374,10 @@ class RecordCtrl:
             self._capture = [self._header]
             recording_state = wx.Icon(
                 os.path.join(self.path, "img", "icon.png"))
+            # Persist the freshly recorded capture into the active scenario.
+            parent = event.GetEventObject().GetParent()
+            if getattr(parent, "scc", None) is not None:
+                parent.scc.persist()
         event.GetEventObject().GetParent().taskbar.SetIcon(recording_state)
 
     def update_timer(self, event):
@@ -547,6 +556,25 @@ class SettingsCtrl:
         self.main_dialog.SetWindowStyle(style ^ wx.STAY_ON_TOP)
         settings.CONFIG['DEFAULT']['Always On Top'] = str(not current_value)
 
+    @staticmethod
+    def auto_replay_interval(event):
+        """Set the interval between two automatic replays (in minutes)."""
+        try:
+            current_seconds = settings.CONFIG.getint(
+                "DEFAULT", "Auto Replay Interval")
+        except (ValueError, KeyError):
+            current_seconds = 1800
+        current_minutes = max(1, round(current_seconds / 60))
+        dialog = wx.NumberEntryDialog(
+            None, message="Interval between automatic replays (minutes)",
+            prompt="", caption="Auto Replay Interval",
+            value=current_minutes, min=1, max=1440)
+        dialog.ShowModal()
+        new_minutes = dialog.Value
+        dialog.Destroy()
+        settings.CONFIG["DEFAULT"]["Auto Replay Interval"] = str(new_minutes * 60)
+        settings.save_config()
+
     def language(self, event):
         """Manage the language among the one available."""
         menu = event.EventObject
@@ -581,3 +609,150 @@ class PlayThread(Thread):
 
     def ended(self):
         return self._end.isSet()
+
+
+class ScenarioCtrl:
+    """Manage named scenarios (sessions).
+
+    A scenario is simply a saved capture stored under
+    ``settings.SCENARIOS_DIR``. Selecting a scenario loads its capture as the
+    current working capture (``TMP_PATH``) so the existing record/play logic
+    keeps working unchanged. Recording or loading a file while a scenario is
+    active updates that scenario on disk.
+    """
+
+    def __init__(self, main_dialog):
+        self.main_dialog = main_dialog
+
+    @staticmethod
+    def list_scenarios():
+        """Return the sorted list of existing scenario names."""
+        try:
+            files = os.listdir(settings.SCENARIOS_DIR)
+        except OSError:
+            return []
+        names = [os.path.splitext(f)[0]
+                 for f in files if f.endswith(SCENARIO_EXT)]
+        return sorted(names, key=str.lower)
+
+    @staticmethod
+    def scenario_path(name):
+        """Return the on-disk path of a scenario given its name."""
+        return os.path.join(settings.SCENARIOS_DIR, name + SCENARIO_EXT)
+
+    @property
+    def current(self):
+        return settings.CONFIG.get("DEFAULT", "Current Scenario")
+
+    def _set_current(self, name):
+        settings.CONFIG["DEFAULT"]["Current Scenario"] = name or ""
+        settings.save_config()
+
+    def load(self, name):
+        """Make ``name`` the active scenario and load its capture."""
+        path = self.scenario_path(name)
+        if os.path.isfile(path):
+            shutil.copy(path, TMP_PATH)
+        self._set_current(name)
+
+    def persist(self):
+        """Save the current working capture into the active scenario file."""
+        name = self.current
+        if not name or not os.path.isfile(TMP_PATH):
+            return
+        try:
+            shutil.copy(TMP_PATH, self.scenario_path(name))
+        except IOError:
+            wx.LogError("Cannot save the current scenario")
+
+    def create(self, name):
+        """Create an empty scenario and make it the active one."""
+        name = name.strip()
+        if not name:
+            return False
+        path = self.scenario_path(name)
+        if os.path.exists(path):
+            wx.LogError(f"A scenario named '{name}' already exists")
+            return False
+        with open(path, "w") as f:
+            f.write(HEADER)
+        # Reset the working capture so the new (empty) scenario is loaded.
+        shutil.copy(path, TMP_PATH)
+        self._set_current(name)
+        return True
+
+    def delete(self, name):
+        """Delete a scenario from disk."""
+        path = self.scenario_path(name)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        if self.current == name:
+            self._set_current("")
+
+    def rename(self, old, new):
+        """Rename a scenario, keeping it active if it was."""
+        new = new.strip()
+        if not new:
+            return False
+        new_path = self.scenario_path(new)
+        if os.path.exists(new_path):
+            wx.LogError(f"A scenario named '{new}' already exists")
+            return False
+        try:
+            os.rename(self.scenario_path(old), new_path)
+        except OSError:
+            return False
+        if self.current == old:
+            self._set_current(new)
+        return True
+
+
+class AutoReplayCtrl:
+    """Replay the active capture automatically on a fixed schedule.
+
+    The interval is configurable (default 30 minutes). The first replay is
+    fired immediately when auto-replay is enabled, then it repeats every
+    ``Auto Replay Interval`` seconds until it is disabled.
+    """
+
+    def __init__(self, main_dialog):
+        self.main_dialog = main_dialog
+        self.timer = wx.Timer(main_dialog)
+        main_dialog.Bind(wx.EVT_TIMER, self.on_tick, self.timer)
+
+    @staticmethod
+    def interval_seconds():
+        try:
+            return max(1, settings.CONFIG.getint("DEFAULT", "Auto Replay Interval"))
+        except (ValueError, KeyError):
+            return 1800
+
+    def start(self):
+        settings.CONFIG["DEFAULT"]["Auto Replay"] = "True"
+        self.timer.Start(self.interval_seconds() * 1000)
+        # Fire a first replay right away.
+        self._trigger_replay()
+
+    def stop(self):
+        settings.CONFIG["DEFAULT"]["Auto Replay"] = "False"
+        if self.timer.IsRunning():
+            self.timer.Stop()
+
+    def is_running(self):
+        return self.timer.IsRunning()
+
+    def on_tick(self, event):
+        self._trigger_replay()
+
+    def _trigger_replay(self):
+        """Programmatically press the Play button (unless already playing)."""
+        play_button = self.main_dialog.play_button
+        if play_button.Value:
+            # A replay is already in progress, skip this tick.
+            return
+        play_button.Value = True
+        btn_event = wx.CommandEvent(wx.wxEVT_TOGGLEBUTTON)
+        btn_event.EventObject = play_button
+        self.main_dialog.pbc.action(btn_event)
