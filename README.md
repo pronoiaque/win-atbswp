@@ -57,6 +57,13 @@ The interface uses the CHU Toulouse palette from winghost-monitor:
 
 ## Install instructions
 
+### Windows (recommended)
+
+Grab the latest single-file **`win-atbswp.exe`** from the
+[Releases page](https://github.com/pronoiaque/win-atbswp/releases) and run it —
+no Python install required. The executable is built automatically on a Windows
+runner (see `.github/workflows/build-windows.yml`).
+
 ### From source
 
 Debian / Ubuntu

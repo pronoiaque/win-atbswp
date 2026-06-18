@@ -56,11 +56,14 @@ SCENARIOS_DIRNAME = "atbswp_scenarios"
 # Check the location of the configuration file, default to the home directory
 filename = "atbswp.cfg"
 if platform.system() == "Linux":
-    config_dir = os.path.join(os.environ.get("HOME"), ".config")
+    config_dir = os.path.join(os.environ.get("HOME") or os.path.expanduser("~"),
+                              ".config")
 elif platform.system() == "Windows":
-    config_dir = os.environ.get("APPDATA")
+    # %APPDATA% is the canonical per-user config location on Windows; fall back
+    # to the home directory in the rare case it is not defined.
+    config_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
 else:
-    config_dir = os.environ.get("HOME")
+    config_dir = os.environ.get("HOME") or os.path.expanduser("~")
 
 config_location = os.path.join(config_dir, filename)
 

@@ -43,6 +43,14 @@ import wx.lib.newevent as NE
 TMP_PATH = os.path.join(tempfile.gettempdir(),
                         "atbswp-" + date.today().strftime("%Y%m%d"))
 SCENARIO_EXT = ".py"
+
+# Characters Windows forbids in file names, plus the reserved device names.
+# Scenario names are used verbatim as file names, so they must be validated.
+INVALID_SCENARIO_CHARS = '<>:"/\\|?*'
+RESERVED_SCENARIO_NAMES = {"CON", "PRN", "AUX", "NUL"} \
+    | {f"COM{i}" for i in range(1, 10)} \
+    | {f"LPT{i}" for i in range(1, 10)}
+
 HEADER = (
     f"#!/bin/env python3\n"
     f"# Created by atbswp v{settings.VERSION} "
@@ -640,6 +648,23 @@ class ScenarioCtrl:
         """Return the on-disk path of a scenario given its name."""
         return os.path.join(settings.SCENARIOS_DIR, name + SCENARIO_EXT)
 
+    @staticmethod
+    def is_valid_name(name):
+        """Reject names that are not valid (Windows) file names."""
+        name = name.strip()
+        if not name:
+            return False
+        if any(c in INVALID_SCENARIO_CHARS for c in name):
+            return False
+        if any(ord(c) < 32 for c in name):
+            return False
+        # Windows disallows names ending with a dot or a space.
+        if name.endswith(".") or name.endswith(" "):
+            return False
+        if name.upper() in RESERVED_SCENARIO_NAMES:
+            return False
+        return True
+
     @property
     def current(self):
         return settings.CONFIG.get("DEFAULT", "Current Scenario")
@@ -668,7 +693,10 @@ class ScenarioCtrl:
     def create(self, name):
         """Create an empty scenario and make it the active one."""
         name = name.strip()
-        if not name:
+        if not self.is_valid_name(name):
+            wx.LogError(
+                "Invalid scenario name. Avoid the characters "
+                f"{INVALID_SCENARIO_CHARS} and reserved names.")
             return False
         path = self.scenario_path(name)
         if os.path.exists(path):
@@ -694,7 +722,10 @@ class ScenarioCtrl:
     def rename(self, old, new):
         """Rename a scenario, keeping it active if it was."""
         new = new.strip()
-        if not new:
+        if not self.is_valid_name(new):
+            wx.LogError(
+                "Invalid scenario name. Avoid the characters "
+                f"{INVALID_SCENARIO_CHARS} and reserved names.")
             return False
         new_path = self.scenario_path(new)
         if os.path.exists(new_path):
