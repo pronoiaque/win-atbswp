@@ -24,7 +24,7 @@ from datetime import date
 
 
 CONFIG = configparser.ConfigParser()
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 YEAR = date.today().strftime("%Y")
 
 
@@ -37,7 +37,7 @@ DEFAULTS = {
     "Recording Hotkey": "348",
     "Playback Hotkey": "349",
     "Always On Top": "True",
-    "Language": "en",
+    "Language": "fr",
     "Recording Timer": "0",
     "Mouse Speed": "21",
     # Name of the currently active scenario (session). Empty means none.
@@ -51,6 +51,9 @@ DEFAULTS = {
 
 # Folder where the named scenarios (sessions) are stored, one .py capture each.
 SCENARIOS_DIRNAME = "atbswp_scenarios"
+
+# Folder where monitoring session data (response-time logs) are written.
+REPORTS_DIRNAME = "atbswp_reports"
 
 
 # Check the location of the configuration file, default to the home directory
@@ -67,8 +70,9 @@ else:
 
 config_location = os.path.join(config_dir, filename)
 
-# Scenarios live next to the configuration file.
+# Scenarios and monitoring reports live next to the configuration file.
 SCENARIOS_DIR = os.path.join(config_dir, SCENARIOS_DIRNAME)
+REPORTS_DIR = os.path.join(config_dir, REPORTS_DIRNAME)
 
 
 def save_config():
@@ -91,8 +95,9 @@ except:
 
 _ensure_defaults()
 
-# Make sure the scenarios folder exists.
-try:
-    os.makedirs(SCENARIOS_DIR, exist_ok=True)
-except OSError:
-    pass
+# Make sure the scenarios and reports folders exist.
+for _folder in (SCENARIOS_DIR, REPORTS_DIR):
+    try:
+        os.makedirs(_folder, exist_ok=True)
+    except OSError:
+        pass

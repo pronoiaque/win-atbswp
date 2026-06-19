@@ -1,108 +1,80 @@
-# win-atbswp
+# WinGhost Monitor
+
 ![Logo](./atbswp/img/logo_chu.png)
 
-**win-atbswp** is a fork of [atbswp](https://github.com/RMPR/atbswp) (Automate
-the Boring Stuff with Python) that records your mouse and keyboard actions and
-replays them identically as many times as you want.
+**WinGhost Monitor** enregistre vos actions souris/clavier et les rejoue à
+l'identique autant de fois que nécessaire. C'est un fork de
+[atbswp](https://github.com/RMPR/atbswp) enrichi pour l'automatisation et le
+**monitoring du temps de réponse** de scénarios applicatifs.
 
-On top of the original tool, this fork adds three things tailored for
-unattended, repeatable monitoring runs:
+## Fonctionnalités
 
-* **Scenario (session) management** — save several named captures and switch
-  between them from a dropdown, instead of juggling a single capture file.
-* **Auto-replay (the "Auto" button)** — replay the active scenario
-  automatically on a fixed schedule, with a configurable interval
-  (**30 minutes by default**).
-* **CHU / winghost-monitor look & feel** — the logo and color palette from
+- **Gestion de scénarios (sessions)** — enregistrez plusieurs captures nommées
+  et basculez de l'une à l'autre via une liste déroulante (Nouveau / Renommer /
+  Supprimer). Le scénario actif est mémorisé entre les sessions.
+- **Rejeu automatique (bouton « Auto »)** — rejoue le scénario actif à
+  intervalle régulier, paramétrable (**30 minutes par défaut**).
+- **Monitoring du temps de réponse** — un chrono démarre au début de chaque
+  boucle et s'arrête à la fin du rejeu (retour de l'input validé). Le bouton
+  **Rapport** affiche et exporte le détail :
+
+  ```
+  Scénario "X" ; 15 boucle(s) de 30 minutes (auto-play interval)
+
+  Boucle 1 : de 09:00 à 09:30 -> 5 min
+  Boucle 2 : de 09:30 à 10:00 -> 4.5 min
+  ...
+  Temps de réponse moyen : ...
+  ```
+
+- **Enregistrement progressif des sessions** — chaque boucle est écrite au fur
+  et à mesure dans un fichier CSV (UTF-8, ouvrable dans Excel) sous
+  `%APPDATA%\atbswp_reports`.
+- **Bouton STOP** — arrête d'un coup l'enregistrement et le rejeu automatique
+  (également via un **double appui sur Échap**).
+- **Habillage CHU** — logo et palette de couleurs du projet
   [winghost-monitor](https://github.com/pronoiaque/winghost-monitor).
 
-## New features
+## Installation (Windows)
 
-### Scenarios (sessions)
+Téléchargez le fichier **`win-atbswp.exe`** depuis la page
+[Releases](https://github.com/pronoiaque/win-atbswp/releases) et lancez-le —
+aucune installation de Python n'est nécessaire. L'exécutable est un fichier
+unique (monobloc), construit automatiquement sur un runner Windows
+(voir `.github/workflows/build-windows.yml`).
 
-A *scenario* is a saved capture stored under your config directory
-(`~/.config/atbswp_scenarios` on Linux, `%APPDATA%\atbswp_scenarios` on
-Windows), one `.py` file per scenario.
+## Utilisation
 
-* Use the **Scenario** dropdown to pick the active scenario; its capture is
-  loaded as the current working capture.
-* **+** creates a new (empty) scenario, **Rename** renames the active one, and
-  **X** deletes it.
-* Recording, or loading a capture from disk, automatically updates the active
-  scenario on disk.
+| Bouton | Rôle |
+|--------|------|
+| Charger | Charger une capture depuis le disque |
+| Enregistrer | Sauvegarder la capture courante |
+| ⏺ (rouge) | Démarrer / arrêter l'enregistrement |
+| ⏹ STOP | Tout arrêter (ou double appui sur Échap) |
+| ▶ (vert) | Rejouer le scénario |
+| ⏱ Auto | Activer le rejeu automatique planifié |
+| 📊 Rapport | Afficher / exporter le rapport de temps de réponse |
+| ⚙ | Paramètres (intervalle, raccourcis, répétitions…) |
 
-The active scenario is remembered across restarts.
+### Raccourcis clavier
 
-### Auto-replay ("Auto")
+- **F2–F12** : touches d'enregistrement / de lecture (configurables dans les
+  Paramètres).
+- **Échap × 2** (en moins d'une seconde) : tout arrêter.
 
-Toggle the **Auto** button to replay the active scenario on a schedule. The
-first replay fires immediately, then it repeats every *Auto Replay Interval*
-seconds (default **1800s = 30 min**). A new replay is skipped if the previous
-one is still running.
+## Où sont stockées mes données ?
 
-Change the interval from **Preferences (cog) → Auto Replay Interval**, expressed
-in minutes. The auto-replay state and interval are persisted across restarts.
+- Scénarios : `%APPDATA%\atbswp_scenarios\<nom>.py`
+- Rapports de monitoring : `%APPDATA%\atbswp_reports\<scénario>_<horodatage>.csv`
+- Configuration : `%APPDATA%\atbswp.cfg`
 
-### Theme
+## Crédits
 
-The interface uses the CHU Toulouse palette from winghost-monitor:
-
-| Role            | Color     |
-|-----------------|-----------|
-| Primary (blue)  | `#0091CE` |
-| Success (green) | `#8BC53F` |
-| Record (red)    | `#D64550` |
-| Auto (amber)    | `#E8A33D` |
-| Text / dark     | `#1E2A38` |
-
-## Install instructions
-
-### Windows (recommended)
-
-Grab the latest single-file **`win-atbswp.exe`** from the
-[Releases page](https://github.com/pronoiaque/win-atbswp/releases) and run it —
-no Python install required. The executable is built automatically on a Windows
-runner (see `.github/workflows/build-windows.yml`).
-
-### From source
-
-Debian / Ubuntu
-```shell
-sudo apt install git python3-dev python3-tk python3-setuptools python3-wheel python3-pip python3-wxgtk4.0
-git clone https://github.com/pronoiaque/win-atbswp.git && cd win-atbswp
-python3 -m pip install pyautogui pynput --user
-python3 atbswp/main.py
-```
-
-Fedora
-```shell
-sudo dnf install python3-wxpython4 python3-xlib python3-tkinter
-git clone https://github.com/pronoiaque/win-atbswp.git && cd win-atbswp
-python3 -m pip install pyautogui pynput --user
-python3 atbswp/main.py
-```
-
-Windows
-```shell
-git clone https://github.com/pronoiaque/win-atbswp
-cd win-atbswp
-pip install wxPython pyautogui pynput
-python atbswp\main.py
-```
-
-## Credits
-
-* Original project: [atbswp](https://github.com/RMPR/atbswp) by Paul Mairo
+- Projet d'origine : [atbswp](https://github.com/RMPR/atbswp) par Paul Mairo
   (GNU GPL v3).
-* Logo & color palette: [winghost-monitor](https://github.com/pronoiaque/winghost-monitor).
+- Logo et palette : [winghost-monitor](https://github.com/pronoiaque/winghost-monitor).
+- Icônes : [Font Awesome Free](https://fontawesome.com) (CC BY 4.0).
 
-## License
+## Licence
 
-GNU General Public License v3 — see [LICENSE](./LICENSE).
-
-## Known issues
-On Linux, this only works with Xorg. Wayland users have to enable Xorg:
-
-```
-sudo sed 's/#WaylandEnable=false/WaylandEnable=false/' /etc/gdm/custom.conf -i # on Gnome
-```
+GNU General Public License v3 — voir [LICENSE](./LICENSE).

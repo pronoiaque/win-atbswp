@@ -22,6 +22,7 @@ create the GUI and handle non functionnal event
 
 import os
 import sys
+import time
 from pathlib import Path
 
 import control
@@ -93,7 +94,7 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         # Auto replay interval
         self.Bind(wx.EVT_MENU,
                   control.SettingsCtrl.auto_replay_interval,
-                  menu.Append(wx.ID_ANY, "Auto Replay &Interval"))
+                  menu.Append(wx.ID_ANY, "&Intervalle de rejeu automatique"))
         menu.AppendSeparator()
 
         # Always on top
@@ -150,6 +151,8 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         kwds["style"] = kwds.get("style", 0) | on_top
         wx.Dialog.__init__(self, *args, **kwds)
         self.panel = wx.Panel(self)
+        # Timestamp of the last Escape key press (for the double-Esc stop).
+        self._last_esc = 0.0
         self.icon = theme.app_icon()
         self.SetIcon(self.icon)
         self.taskbar = TaskBarIcon(self)
@@ -204,6 +207,14 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
                                                              wx.BITMAP_TYPE_ANY))
         self.record_button.SetToolTip(self.app_text[2])
         theme.style_button(self.record_button, theme.RED)
+        self.stop_button = wx.BitmapButton(
+            self, wx.ID_ANY,
+            wx.Bitmap(os.path.join(self.path, "img", "stop.png"),
+                      wx.BITMAP_TYPE_ANY))
+        theme.style_button(self.stop_button, theme.DARK, theme.WHITE)
+        self.stop_button.SetToolTip(
+            "Tout arrêter : enregistrement et rejeu automatique "
+            "(ou double appui sur Échap)")
         self.play_button = wx.BitmapToggleButton(self,
                                                  wx.ID_ANY,
                                                  wx.Bitmap(os.path.join(self.path, "img", "play-circle.png"),
@@ -247,8 +258,10 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         """Load the interface in user-defined language (default english)."""
         try:
             lang = settings.CONFIG.get('DEFAULT', 'Language')
-            locale = open(os.path.join(self.path, "lang", lang)
-                          ).read().splitlines()
+            # Read as UTF-8 so accented characters render correctly on Windows
+            # (the default cp1252 codec would garble them, e.g. in the menu).
+            locale = open(os.path.join(self.path, "lang", lang),
+                          encoding="utf-8").read().splitlines()
         except:
             return self.app_text + self.settings_text
 
@@ -263,6 +276,9 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         # record_button_ctrl
         self.rbc = control.RecordCtrl()
         self.Bind(wx.EVT_TOGGLEBUTTON, self.rbc.action, self.record_button)
+
+        # stop_button_ctrl (stops recording and auto-replay)
+        self.Bind(wx.EVT_BUTTON, self.on_stop, self.stop_button)
 
         # play_button_ctrl
         self.pbc = control.PlayCtrl()
@@ -298,6 +314,7 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         self.file_open_button.SetSize(self.file_open_button.GetBestSize())
         self.save_button.SetSize(self.save_button.GetBestSize())
         self.record_button.SetSize(self.record_button.GetBestSize())
+        self.stop_button.SetSize(self.stop_button.GetBestSize())
         self.play_button.SetSize(self.play_button.GetBestSize())
         self.auto_button.SetSize(self.auto_button.GetBestSize())
         self.report_button.SetSize(self.report_button.GetBestSize())
@@ -333,6 +350,7 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         buttons_sizer.Add(self.file_open_button, 0, 0, 0)
         buttons_sizer.Add(self.save_button, 0, 0, 0)
         buttons_sizer.Add(self.record_button, 0, 0, 0)
+        buttons_sizer.Add(self.stop_button, 0, 0, 0)
         buttons_sizer.Add(self.play_button, 0, 0, 0)
         buttons_sizer.Add(self.auto_button, 0, 0, 0)
         buttons_sizer.Add(self.report_button, 0, 0, 0)
@@ -483,6 +501,15 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
             btn_event.EventObject = self.save_button
             self.fsc.save_file(btn_event)
 
+        elif keycode == wx.WXK_ESCAPE:
+            # Two Escape presses within a second stop everything.
+            now = time.monotonic()
+            if now - self._last_esc <= 1.0:
+                self._last_esc = 0.0
+                self.stop_all()
+            else:
+                self._last_esc = now
+
         event.Skip()
 
     def on_thread_end(self, event):
@@ -503,6 +530,34 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         dlg.Destroy()
         self.panel.SetFocus()
 
+    # ---------------------------------------------------------------
+    # Stop everything (button + double-Escape)
+    # ---------------------------------------------------------------
+    def on_stop(self, event):
+        """Handler for the STOP button."""
+        self.stop_all()
+        self.panel.SetFocus()
+
+    def stop_all(self):
+        """Stop recording, auto-replay and any replay in progress."""
+        # Stop an ongoing recording.
+        if self.record_button.Value:
+            self.record_button.Value = False
+            btn_event = wx.CommandEvent(wx.wxEVT_TOGGLEBUTTON)
+            btn_event.EventObject = self.record_button
+            self.rbc.action(btn_event)
+        # Stop scheduled auto-replay.
+        if self.arc.is_running():
+            self.arc.stop()
+            self.auto_button.SetValue(False)
+            self.__update_auto_status()
+        # Stop a replay currently running.
+        if self.play_button.Value:
+            self.play_button.Value = False
+            btn_event = wx.CommandEvent(wx.wxEVT_TOGGLEBUTTON)
+            btn_event.EventObject = self.play_button
+            self.pbc.action(btn_event)
+
     def on_exit_app(self, event):
         """Clean exit saving the settings."""
         self.arc.stop()
@@ -513,8 +568,8 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
     def on_close_dialog(self, event):
         """Confirm exit."""
         dialog = wx.MessageDialog(self,
-                                  message="Are you sure you want to quit?",
-                                  caption="Confirm Exit",
+                                  message="Voulez-vous vraiment quitter ?",
+                                  caption="Confirmer la fermeture",
                                   style=wx.YES_NO,
                                   pos=wx.DefaultPosition)
         response = dialog.ShowModal()
@@ -530,11 +585,14 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         info.Name = APP_TITLE
         info.Version = f"{settings.VERSION}"
         info.Copyright = (f"©{settings.YEAR} Paul Mairo <github@rmpr.xyz>\n")
-        info.Description = ("Record mouse and keyboard actions and reproduce them "
-                            "identically at will.\nScenarios, auto-replay and CHU "
-                            "theme inspired by the winghost-monitor project.")
-        info.WebSite = ("https://github.com/atbswp", "Project homepage")
-        info.Developers = ["Paul Mairo"]
+        info.Description = (
+            "Enregistre les actions souris/clavier et les rejoue à l'identique.\n"
+            "Gestion de scénarios, rejeu automatique et monitoring du temps de "
+            "réponse.\nThème CHU inspiré du projet winghost-monitor ; "
+            "fork de atbswp (Paul Mairo).")
+        info.WebSite = ("https://github.com/pronoiaque/win-atbswp",
+                        "Page du projet")
+        info.Developers = ["Paul Mairo (atbswp)"]
         info.License = "GNU General Public License V3"
         info.Icon = self.icon
         wx.adv.AboutBox(info)

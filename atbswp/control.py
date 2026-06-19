@@ -88,7 +88,7 @@ class FileChooserCtrl:
 
     def load_file(self, event):
         """Load a capture manually chosen by the user."""
-        title = "Choose a capture file:"
+        title = "Choisir un fichier capture :"
         dlg = wx.FileDialog(self.parent,
                             message=title,
                             defaultDir="~",
@@ -109,7 +109,7 @@ class FileChooserCtrl:
         """Save the capture currently loaded."""
         event.EventObject.Parent.panel.SetFocus()
 
-        with wx.FileDialog(self.parent, "Save capture file", wildcard="*",
+        with wx.FileDialog(self.parent, "Enregistrer le fichier capture", wildcard="*",
                            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as fileDialog:
 
             if fileDialog.ShowModal() == wx.ID_CANCEL:
@@ -120,7 +120,7 @@ class FileChooserCtrl:
             try:
                 shutil.copy(TMP_PATH, pathname)
             except IOError:
-                wx.LogError(f"Cannot save current data in file {pathname}.")
+                wx.LogError(f"Impossible d'enregistrer les données dans le fichier {pathname}.")
 
 
 class RecordCtrl:
@@ -254,7 +254,7 @@ class RecordCtrl:
                 self.write_mouse_action(
                     move="mouseDown", parameters=f"{x}, {y}, 'middle'")
             else:
-                wx.LogError("Mouse Button not recognized")
+                wx.LogError("Bouton de souris non reconnu")
         else:
             if button == mouse.Button.left:
                 self.write_mouse_action(
@@ -266,7 +266,7 @@ class RecordCtrl:
                 self.write_mouse_action(
                     move="mouseUp", parameters=f"{x}, {y}, 'middle'")
             else:
-                wx.LogError("Mouse Button not recognized")
+                wx.LogError("Bouton de souris non reconnu")
 
     def on_scroll(self, x, y, dx, dy):
         """Triggered by a mouse wheel scroll."""
@@ -441,7 +441,7 @@ class PlayCtrl:
                 self.count = settings.CONFIG.getint('DEFAULT', 'Repeat Count')
                 self.count_was_updated = True
             if TMP_PATH is None or not os.path.isfile(TMP_PATH):
-                wx.LogError("No capture loaded")
+                wx.LogError("Aucune capture chargée")
                 event = self.ThreadEndEvent(
                     count=self.count, toggle_value=False)
                 wx.PostEvent(toggle_button.Parent, event)
@@ -476,7 +476,7 @@ class CompileCtrl:
         try:
             bytecode_path = py_compile.compile(TMP_PATH)
         except:
-            wx.LogError("No capture loaded")
+            wx.LogError("Aucune capture chargée")
             return
         default_file = "capture.pyc"
         event.EventObject.Parent.panel.SetFocus()
@@ -490,7 +490,7 @@ class CompileCtrl:
             try:
                 shutil.copy(bytecode_path, pathname)
             except IOError:
-                wx.LogError(f"Cannot save current data in file {pathname}.")
+                wx.LogError(f"Impossible d'enregistrer les données dans le fichier {pathname}.")
 
 
 class SettingsCtrl:
@@ -517,8 +517,8 @@ class SettingsCtrl:
     def repeat_count(self, event):
         """Set the repeat count."""
         current_value = settings.CONFIG.getint('DEFAULT', 'Repeat Count')
-        dialog = wx.NumberEntryDialog(None, message="Choose a repeat count",
-                                      prompt="", caption="Repeat Count", value=current_value, min=1, max=999)
+        dialog = wx.NumberEntryDialog(None, message="Nombre de répétitions",
+                                      prompt="", caption="Nombre de répétitions", value=current_value, min=1, max=999)
         dialog.ShowModal()
         new_value = str(dialog.Value)
         dialog.Destroy()
@@ -529,13 +529,13 @@ class SettingsCtrl:
     def recording_hotkey(event):
         """Set the recording hotkey."""
         current_value = settings.CONFIG.getint('DEFAULT', 'Recording Hotkey')
-        dialog = SliderDialog(None, title="Choose a function key: F2-12", size=(500, 50),
+        dialog = SliderDialog(None, title="Choisissez une touche de fonction : F2-12", size=(500, 50),
                               default_value=current_value-339, min_value=2, max_value=12)
         dialog.ShowModal()
         new_value = dialog.value + 339
         if new_value == settings.CONFIG.getint('DEFAULT', 'Playback Hotkey'):
             dlg = wx.MessageDialog(
-                None, "Recording hotkey should be different from Playback one", "Error", wx.OK | wx.ICON_ERROR)
+                None, "La touche d'enregistrement doit être différente de celle de lecture", "Erreur", wx.OK | wx.ICON_ERROR)
             dlg.ShowModal()
             dlg.Destroy()
         dialog.Destroy()
@@ -545,13 +545,13 @@ class SettingsCtrl:
     def playback_hotkey(event):
         """Set the playback hotkey."""
         current_value = settings.CONFIG.getint('DEFAULT', 'Playback Hotkey')
-        dialog = SliderDialog(None, title="Choose a function key: F2-12", size=(500, 50),
+        dialog = SliderDialog(None, title="Choisissez une touche de fonction : F2-12", size=(500, 50),
                               default_value=current_value-339, min_value=2, max_value=12)
         dialog.ShowModal()
         new_value = dialog.value + 339
         if new_value == settings.CONFIG.getint('DEFAULT', 'Recording Hotkey'):
             dlg = wx.MessageDialog(
-                None, "Playback hotkey should be different from Recording one", "Error", wx.OK | wx.ICON_ERROR)
+                None, "La touche de lecture doit être différente de celle d'enregistrement", "Erreur", wx.OK | wx.ICON_ERROR)
             dlg.ShowModal()
             dlg.Destroy()
         dialog.Destroy()
@@ -574,8 +574,8 @@ class SettingsCtrl:
             current_seconds = 1800
         current_minutes = max(1, round(current_seconds / 60))
         dialog = wx.NumberEntryDialog(
-            None, message="Interval between automatic replays (minutes)",
-            prompt="", caption="Auto Replay Interval",
+            None, message="Intervalle entre deux rejeux automatiques (minutes)",
+            prompt="", caption="Intervalle de rejeu automatique",
             value=current_minutes, min=1, max=1440)
         dialog.ShowModal()
         new_minutes = dialog.Value
@@ -590,7 +590,7 @@ class SettingsCtrl:
         settings.CONFIG['DEFAULT']['Language'] = item.GetItemLabelText()
         settings.save_config()
         dialog = wx.MessageDialog(None,
-                                  message="Restart the program to apply modifications",
+                                  message="Redémarrez le programme pour appliquer les modifications",
                                   pos=wx.DefaultPosition)
         dialog.ShowModal()
 
@@ -818,30 +818,67 @@ class MonitorCtrl:
         self.interval = 1800
         self.loops = []          # list of {index, start, end, duration}
         self._loop_start = None
+        self.session_file = None
 
     def reset(self, scenario, interval):
-        """Begin a fresh monitoring session."""
+        """Begin a fresh monitoring session and open its on-disk log."""
         self.scenario = scenario or "(aucun)"
         self.interval = interval
         self.loops = []
         self._loop_start = None
+        self._open_session_file()
+
+    def _open_session_file(self):
+        """Create the CSV log file for this session and write its header."""
+        self.session_file = None
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{self.scenario}_{stamp}.csv"
+        path = os.path.join(settings.REPORTS_DIR, filename)
+        try:
+            # utf-8-sig so Excel shows the accents correctly.
+            with open(path, "w", encoding="utf-8-sig", newline="") as f:
+                interval_min = max(1, round(self.interval / 60))
+                f.write(f"# Scénario;{self.scenario}\n")
+                f.write(f"# Intervalle (min);{interval_min}\n")
+                f.write("boucle;début;fin;durée (s);temps de réponse\n")
+            self.session_file = path
+        except OSError:
+            self.session_file = None
 
     def start_loop(self):
         """Mark the beginning of a loop (chrono start)."""
         self._loop_start = datetime.now()
 
     def end_loop(self):
-        """Mark the end of the current loop (chrono stop) and record it."""
+        """Mark the end of the current loop (chrono stop), record and save it."""
         if self._loop_start is None:
             return
         end = datetime.now()
-        self.loops.append({
+        loop = {
             "index": len(self.loops) + 1,
             "start": self._loop_start,
             "end": end,
             "duration": (end - self._loop_start).total_seconds(),
-        })
+        }
+        self.loops.append(loop)
         self._loop_start = None
+        self._append_loop(loop)
+
+    def _append_loop(self, loop):
+        """Append one loop to the session CSV as soon as it completes."""
+        if not self.session_file:
+            return
+        try:
+            with open(self.session_file, "a", encoding="utf-8-sig",
+                      newline="") as f:
+                f.write(
+                    f'{loop["index"]};'
+                    f'{loop["start"]:%Y-%m-%d %H:%M:%S};'
+                    f'{loop["end"]:%Y-%m-%d %H:%M:%S};'
+                    f'{loop["duration"]:.1f};'
+                    f'{format_duration(loop["duration"])}\n')
+        except OSError:
+            pass
 
     def has_data(self):
         return bool(self.loops)
@@ -865,4 +902,7 @@ class MonitorCtrl:
         avg = sum(loop["duration"] for loop in self.loops) / len(self.loops)
         lines.append("")
         lines.append(f"Temps de réponse moyen : {format_duration(avg)}")
+        if self.session_file:
+            lines.append("")
+            lines.append(f"Données enregistrées dans : {self.session_file}")
         return "\n".join(lines)
