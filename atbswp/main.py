@@ -28,7 +28,7 @@ class Atbswp(wx.App):
 
     def OnInit(self):
         """Initialize the main Window."""
-        self.main = gui.MainDialog(None, wx.ID_ANY, "atbswp")
+        self.main = gui.MainDialog(None, wx.ID_ANY, gui.APP_TITLE)
         self.SetTopWindow(self.main)
         self.main.Show()
         return True

@@ -24,20 +24,55 @@ from datetime import date
 
 
 CONFIG = configparser.ConfigParser()
-VERSION = "0.3.1"
+VERSION = "0.4.2"
 YEAR = date.today().strftime("%Y")
+
+
+# Default values used both to bootstrap a fresh config file and to backfill
+# keys that are missing when the user upgrades from a previous version.
+DEFAULTS = {
+    "Fast Play Speed": "False",
+    "Infinite Playback": "False",
+    "Repeat Count": "1",
+    "Recording Hotkey": "348",
+    "Playback Hotkey": "349",
+    "Always On Top": "True",
+    "Language": "fr",
+    "Recording Timer": "0",
+    "Mouse Speed": "21",
+    # Name of the currently active scenario (session). Empty means none.
+    "Current Scenario": "",
+    # Auto-replay: replay the active capture on a fixed schedule.
+    "Auto Replay": "False",
+    # Interval between two automatic replays, in seconds (default: 30 minutes).
+    "Auto Replay Interval": "1800",
+}
+
+
+# Folder where the named scenarios (sessions) are stored, one .py capture each.
+SCENARIOS_DIRNAME = "atbswp_scenarios"
+
+# Folder where monitoring session data (response-time logs) are written.
+REPORTS_DIRNAME = "atbswp_reports"
 
 
 # Check the location of the configuration file, default to the home directory
 filename = "atbswp.cfg"
 if platform.system() == "Linux":
-    config_location = os.path.join(os.environ.get("HOME"), ".config")
+    config_dir = os.path.join(os.environ.get("HOME") or os.path.expanduser("~"),
+                              ".config")
 elif platform.system() == "Windows":
-    config_location = os.environ.get("APPDATA")
+    # %APPDATA% is the canonical per-user config location on Windows; fall back
+    # to the home directory in the rare case it is not defined.
+    config_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
 else:
-    config_location = os.environ.get("HOME")
+    config_dir = os.environ.get("HOME") or os.path.expanduser("~")
 
-config_location = os.path.join(config_location, filename)
+config_location = os.path.join(config_dir, filename)
+
+# Scenarios and monitoring reports live next to the configuration file.
+SCENARIOS_DIR = os.path.join(config_dir, SCENARIOS_DIRNAME)
+REPORTS_DIR = os.path.join(config_dir, REPORTS_DIRNAME)
 
 
 def save_config():
@@ -45,18 +80,24 @@ def save_config():
         CONFIG.write(config_file)
 
 
+def _ensure_defaults():
+    """Make sure every expected key exists (handles config upgrades)."""
+    for key, value in DEFAULTS.items():
+        if not CONFIG.has_option("DEFAULT", key):
+            CONFIG["DEFAULT"][key] = value
+
+
 try:
     with open(config_location) as config_file:
         CONFIG.read(config_location)
 except:
-    CONFIG["DEFAULT"] = {
-        "Fast Play Speed": False,
-        "Infinite Playback": False,
-        "Repeat Count": 1,
-        "Recording Hotkey": 348,
-        "Playback Hotkey": 349,
-        "Always On Top": True,
-        "Language": "en",
-        "Recording Timer": 0,
-        "Mouse Speed": 21,
-    }
+    CONFIG["DEFAULT"] = dict(DEFAULTS)
+
+_ensure_defaults()
+
+# Make sure the scenarios and reports folders exist.
+for _folder in (SCENARIOS_DIR, REPORTS_DIR):
+    try:
+        os.makedirs(_folder, exist_ok=True)
+    except OSError:
+        pass

@@ -1,0 +1,86 @@
+name: Build Windows EXE
+
+# Builds a single-file Windows executable with PyInstaller.
+#
+# - Runs on every tag "v*"        -> builds and publishes the .exe to a Release.
+# - Can be run manually (Actions tab / API) -> builds and uploads the .exe as a
+#   workflow artifact (no Release created).
+#
+# PyInstaller cannot cross-compile, so this *must* run on a Windows runner.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Create/refresh a Release with this tag (e.g. v0.3.1). Leave empty to only build an artifact."
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # 3.12 has Windows wheels for every dependency (wxPython, pynput,
+          # pyautogui, pyinstaller); the produced exe bundles its own runtime.
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install wxPython pyautogui pynput pyinstaller pillow
+
+      - name: Generate the CHU .ico from the logo
+        run: |
+          python -c "from PIL import Image; im = Image.open('atbswp/img/logo_chu.png').convert('RGBA'); im.save('atbswp/img/logo_chu.ico', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+
+      - name: Build single-file executable
+        run: >
+          pyinstaller --onefile --windowed --clean --noconfirm
+          --name win-atbswp
+          --icon atbswp/img/logo_chu.ico
+          --paths atbswp
+          --add-data "atbswp/img;img"
+          --add-data "atbswp/lang;lang"
+          --hidden-import pynput.keyboard._win32
+          --hidden-import pynput.mouse._win32
+          atbswp/main.py
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-atbswp-exe
+          path: dist/win-atbswp.exe
+          if-no-files-found: error
+
+      # On a tag push, use the tag name; on a manual run, use the input (if any).
+      - name: Resolve release tag
+        id: rel
+        shell: bash
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to Release
+        if: steps.rel.outputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: ${{ steps.rel.outputs.tag }}
+          files: dist/win-atbswp.exe
+          generate_release_notes: true

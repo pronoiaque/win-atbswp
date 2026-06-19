@@ -22,14 +22,24 @@ create the GUI and handle non functionnal event
 
 import os
 import sys
+import time
 from pathlib import Path
 
 import control
 
 import settings
 
+import theme
+
+from custom_widgets import ReportDialog
+
 import wx
 import wx.adv
+
+
+# Product identity shown in the title bar and next to the logo.
+APP_TITLE = "WinGhost Monitor"
+APP_SUBTITLE = "Automatisation & monitoring de scénarios"
 
 
 class MainDialog(wx.Dialog, wx.MiniFrame):
@@ -79,6 +89,12 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         self.Bind(wx.EVT_MENU,
                   control.SettingsCtrl.playback_hotkey,
                   menu.Append(wx.ID_ANY, self.settings_text[4]))
+        menu.AppendSeparator()
+
+        # Auto replay interval
+        self.Bind(wx.EVT_MENU,
+                  control.SettingsCtrl.auto_replay_interval,
+                  menu.Append(wx.ID_ANY, "&Intervalle de rejeu automatique"))
         menu.AppendSeparator()
 
         # Always on top
@@ -135,13 +151,46 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         kwds["style"] = kwds.get("style", 0) | on_top
         wx.Dialog.__init__(self, *args, **kwds)
         self.panel = wx.Panel(self)
-        self.icon = wx.Icon(os.path.join(self.path, "img", "icon.png"))
+        # Timestamp of the last Escape key press (for the double-Esc stop).
+        self._last_esc = 0.0
+        self.icon = theme.app_icon()
         self.SetIcon(self.icon)
         self.taskbar = TaskBarIcon(self)
-        self.taskbar.SetIcon(self.icon, "atbswp")
+        self.taskbar.SetIcon(self.icon, APP_TITLE)
+
+        # CHU / winghost-monitor look & feel.
+        self.SetBackgroundColour(theme.LIGHT)
 
         locale = self.__load_locale()
         self.app_text, self.settings_text = locale[:7], locale[7:]
+
+        # --- Header (logo + product name) ------------------------------
+        self.logo = wx.StaticBitmap(self, wx.ID_ANY, theme.logo_bitmap())
+        self.title = wx.StaticText(self, label=APP_TITLE)
+        self.title.SetForegroundColour(theme.DARK)
+        title_font = self.title.GetFont()
+        title_font.SetPointSize(title_font.GetPointSize() + 4)
+        title_font = title_font.Bold()
+        self.title.SetFont(title_font)
+        self.subtitle = wx.StaticText(self, label=APP_SUBTITLE)
+        self.subtitle.SetForegroundColour(theme.BLUE)
+
+        # --- Scenario (session) selector -------------------------------
+        self.scc = control.ScenarioCtrl(self)
+        self.scenario_label = wx.StaticText(self, label="Scénario :")
+        self.scenario_label.SetForegroundColour(theme.DARK)
+        self.scenario_choice = wx.ComboBox(self, style=wx.CB_READONLY)
+        self.scenario_new_button = wx.Button(self, label="Nouveau")
+        self.scenario_new_button.SetToolTip("Nouveau scénario")
+        theme.style_button(self.scenario_new_button, theme.GREEN, theme.DARK)
+        self.scenario_rename_button = wx.Button(self, label="Renommer")
+        self.scenario_rename_button.SetToolTip("Renommer le scénario")
+        theme.style_button(self.scenario_rename_button, theme.BLUE)
+        self.scenario_delete_button = wx.Button(self, label="Supprimer…")
+        self.scenario_delete_button.SetToolTip("Supprimer le scénario")
+        theme.style_button(self.scenario_delete_button, theme.RED)
+
+        # --- Action buttons --------------------------------------------
         self.file_open_button = wx.BitmapButton(self,
                                                 wx.ID_ANY,
                                                 wx.Bitmap(os.path.join(self.path, "img", "file-upload.png"),
@@ -157,40 +206,62 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
                                                    wx.Bitmap(os.path.join(self.path, "img", "video.png"),
                                                              wx.BITMAP_TYPE_ANY))
         self.record_button.SetToolTip(self.app_text[2])
+        theme.style_button(self.record_button, theme.RED)
+        self.stop_button = wx.BitmapButton(
+            self, wx.ID_ANY,
+            wx.Bitmap(os.path.join(self.path, "img", "stop.png"),
+                      wx.BITMAP_TYPE_ANY))
+        theme.style_button(self.stop_button, theme.DARK, theme.WHITE)
+        self.stop_button.SetToolTip(
+            "Tout arrêter : enregistrement et rejeu automatique "
+            "(ou double appui sur Échap)")
         self.play_button = wx.BitmapToggleButton(self,
                                                  wx.ID_ANY,
                                                  wx.Bitmap(os.path.join(self.path, "img", "play-circle.png"),
                                                            wx.BITMAP_TYPE_ANY))
+        theme.style_button(self.play_button, theme.GREEN)
         self.remaining_plays = wx.StaticText(self, label=settings.CONFIG.get("DEFAULT", "Repeat Count"),
                                              style=wx.ALIGN_CENTRE_HORIZONTAL)
         self.play_button.SetToolTip(self.app_text[3])
-        self.compile_button = wx.BitmapButton(self,
-                                              wx.ID_ANY,
-                                              wx.Bitmap(os.path.join(self.path, "img", "download.png"),
-                                                        wx.BITMAP_TYPE_ANY))
-        self.compile_button.SetToolTip(self.app_text[4])
+
+        # --- Auto replay toggle + response-time monitoring -------------
+        self.monitor = control.MonitorCtrl()
+        self.arc = control.AutoReplayCtrl(self)
+        self.auto_button = wx.BitmapToggleButton(
+            self, wx.ID_ANY,
+            wx.Bitmap(os.path.join(self.path, "img", "auto.png"),
+                      wx.BITMAP_TYPE_ANY))
+        theme.style_button(self.auto_button, theme.AMBER, theme.DARK)
+        self.auto_button.SetToolTip("Rejeu automatique à intervalle régulier")
+        self.auto_status = wx.StaticText(self, label="")
+        self.auto_status.SetForegroundColour(theme.DARK)
+        self.report_button = wx.BitmapButton(
+            self, wx.ID_ANY,
+            wx.Bitmap(os.path.join(self.path, "img", "report.png"),
+                      wx.BITMAP_TYPE_ANY))
+        theme.style_button(self.report_button, theme.BLUE)
+        self.report_button.SetToolTip("Rapport de temps de réponse")
+
         self.settings_button = wx.BitmapButton(self,
                                                wx.ID_ANY,
                                                wx.Bitmap(os.path.join(self.path, "img", "cog.png"),
                                                          wx.BITMAP_TYPE_ANY))
         self.settings_button.SetToolTip(self.app_text[5])
 
-        self.help_button = wx.BitmapButton(self,
-                                           wx.ID_ANY,
-                                           wx.Bitmap(os.path.join(self.path, "img", "question-circle.png"),
-                                                     wx.BITMAP_TYPE_ANY))
-        self.help_button.SetToolTip(self.app_text[6])
-
         self.__add_bindings()
         self.__set_properties()
         self.__do_layout()
+        self.refresh_scenarios()
+        self.__restore_auto_replay()
 
     def __load_locale(self):
         """Load the interface in user-defined language (default english)."""
         try:
             lang = settings.CONFIG.get('DEFAULT', 'Language')
-            locale = open(os.path.join(self.path, "lang", lang)
-                          ).read().splitlines()
+            # Read as UTF-8 so accented characters render correctly on Windows
+            # (the default cp1252 codec would garble them, e.g. in the menu).
+            locale = open(os.path.join(self.path, "lang", lang),
+                          encoding="utf-8").read().splitlines()
         except:
             return self.app_text + self.settings_text
 
@@ -206,6 +277,9 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         self.rbc = control.RecordCtrl()
         self.Bind(wx.EVT_TOGGLEBUTTON, self.rbc.action, self.record_button)
 
+        # stop_button_ctrl (stops recording and auto-replay)
+        self.Bind(wx.EVT_BUTTON, self.on_stop, self.stop_button)
+
         # play_button_ctrl
         self.pbc = control.PlayCtrl()
         self.Bind(wx.EVT_TOGGLEBUTTON, self.pbc.action, self.play_button)
@@ -213,12 +287,17 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         # Handle the event returned after a playback has completed
         self.Bind(self.pbc.EVT_THREAD_END, self.on_thread_end)
 
-        # compile_button_ctrl
-        self.Bind(wx.EVT_BUTTON, control.CompileCtrl.compile,
-                  self.compile_button)
+        # Scenario management
+        self.Bind(wx.EVT_COMBOBOX, self.on_scenario_select, self.scenario_choice)
+        self.Bind(wx.EVT_BUTTON, self.on_scenario_new, self.scenario_new_button)
+        self.Bind(wx.EVT_BUTTON, self.on_scenario_rename, self.scenario_rename_button)
+        self.Bind(wx.EVT_BUTTON, self.on_scenario_delete, self.scenario_delete_button)
 
-        # help_button_ctrl
-        self.Bind(wx.EVT_BUTTON, control.HelpCtrl.action, self.help_button)
+        # Auto replay
+        self.Bind(wx.EVT_TOGGLEBUTTON, self.on_auto_toggle, self.auto_button)
+
+        # Response-time report
+        self.Bind(wx.EVT_BUTTON, self.on_report, self.report_button)
 
         # settings_button_ctrl
         self.Bind(wx.EVT_BUTTON, self.on_settings_click, self.settings_button)
@@ -235,27 +314,151 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         self.file_open_button.SetSize(self.file_open_button.GetBestSize())
         self.save_button.SetSize(self.save_button.GetBestSize())
         self.record_button.SetSize(self.record_button.GetBestSize())
+        self.stop_button.SetSize(self.stop_button.GetBestSize())
         self.play_button.SetSize(self.play_button.GetBestSize())
-        self.compile_button.SetSize(self.compile_button.GetBestSize())
+        self.auto_button.SetSize(self.auto_button.GetBestSize())
+        self.report_button.SetSize(self.report_button.GetBestSize())
         self.settings_button.SetSize(self.settings_button.GetBestSize())
-        self.help_button.SetSize(self.help_button.GetBestSize())
 
     def __do_layout(self):
-        self.remaining_plays.Position = (256, 0)
-        self.remaining_plays.SetBackgroundColour((0, 0, 0))
-        self.remaining_plays.SetForegroundColour((255, 255, 255))
-        main_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        main_sizer.Add(self.panel)
-        main_sizer.Add(self.file_open_button, 0, 0, 0)
-        main_sizer.Add(self.save_button, 0, 0, 0)
-        main_sizer.Add(self.record_button, 0, 0, 0)
-        main_sizer.Add(self.play_button, 0, 0, 0)
-        main_sizer.Add(self.compile_button, 0, 0, 0)
-        main_sizer.Add(self.settings_button, 0, 0, 0)
-        main_sizer.Add(self.help_button, 0, 0, 0)
+        self.remaining_plays.SetBackgroundColour(theme.DARK)
+        self.remaining_plays.SetForegroundColour(theme.WHITE)
+
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Header: logo + product name (title over subtitle)
+        title_sizer = wx.BoxSizer(wx.VERTICAL)
+        title_sizer.Add(self.title, 0, wx.ALIGN_LEFT)
+        title_sizer.Add(self.subtitle, 0, wx.ALIGN_LEFT | wx.TOP, 2)
+        header_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        header_sizer.Add(self.logo, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 6)
+        header_sizer.Add(title_sizer, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 6)
+        main_sizer.Add(header_sizer, 0, wx.EXPAND)
+
+        # Scenario selector row
+        scenario_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        scenario_sizer.Add(self.scenario_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 4)
+        scenario_sizer.Add(self.scenario_choice, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 4)
+        scenario_sizer.Add(self.scenario_new_button, 0, wx.ALL, 2)
+        scenario_sizer.Add(self.scenario_rename_button, 0, wx.ALL, 2)
+        scenario_sizer.Add(self.scenario_delete_button, 0, wx.ALL, 2)
+        main_sizer.Add(scenario_sizer, 0, wx.EXPAND)
+
+        # Action buttons row
+        buttons_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        buttons_sizer.Add(self.panel, 0, 0, 0)
+        buttons_sizer.Add(self.file_open_button, 0, 0, 0)
+        buttons_sizer.Add(self.save_button, 0, 0, 0)
+        buttons_sizer.Add(self.record_button, 0, 0, 0)
+        buttons_sizer.Add(self.stop_button, 0, 0, 0)
+        buttons_sizer.Add(self.play_button, 0, 0, 0)
+        buttons_sizer.Add(self.auto_button, 0, 0, 0)
+        buttons_sizer.Add(self.report_button, 0, 0, 0)
+        buttons_sizer.Add(self.settings_button, 0, 0, 0)
+        main_sizer.Add(buttons_sizer, 0, wx.EXPAND)
+
+        # Status row
+        status_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        status_sizer.Add(self.remaining_plays, 0, wx.ALL, 4)
+        status_sizer.Add(self.auto_status, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
+        main_sizer.Add(status_sizer, 0, wx.EXPAND)
+
         self.SetSizer(main_sizer)
         self.Centre()
         main_sizer.Fit(self)
+        self.Layout()
+
+    # ---------------------------------------------------------------
+    # Scenario (session) management
+    # ---------------------------------------------------------------
+    def refresh_scenarios(self):
+        """Refresh the scenario combobox from disk and reflect the active one."""
+        names = self.scc.list_scenarios()
+        self.scenario_choice.Set(names)
+        current = self.scc.current
+        if current and current in names:
+            self.scenario_choice.SetStringSelection(current)
+        else:
+            self.scenario_choice.SetSelection(wx.NOT_FOUND)
+        has_selection = bool(current) and current in names
+        self.scenario_rename_button.Enable(has_selection)
+        self.scenario_delete_button.Enable(has_selection)
+
+    def on_scenario_select(self, event):
+        """Load the scenario chosen by the user."""
+        name = self.scenario_choice.GetStringSelection()
+        if name:
+            self.scc.load(name)
+        self.refresh_scenarios()
+        self.panel.SetFocus()
+
+    def on_scenario_new(self, event):
+        """Prompt for a name and create a new (empty) scenario."""
+        dlg = wx.TextEntryDialog(self, "Nom du nouveau scénario :",
+                                 "Nouveau scénario")
+        if dlg.ShowModal() == wx.ID_OK:
+            if self.scc.create(dlg.GetValue()):
+                self.refresh_scenarios()
+        dlg.Destroy()
+        self.panel.SetFocus()
+
+    def on_scenario_rename(self, event):
+        """Rename the active scenario."""
+        current = self.scc.current
+        if not current:
+            return
+        dlg = wx.TextEntryDialog(self, "Nouveau nom :", "Renommer le scénario",
+                                 current)
+        if dlg.ShowModal() == wx.ID_OK:
+            if self.scc.rename(current, dlg.GetValue()):
+                self.refresh_scenarios()
+        dlg.Destroy()
+        self.panel.SetFocus()
+
+    def on_scenario_delete(self, event):
+        """Delete the active scenario after confirmation."""
+        current = self.scc.current
+        if not current:
+            return
+        dlg = wx.MessageDialog(self,
+                               message=f"Supprimer le scénario « {current} » ?",
+                               caption="Confirmer la suppression",
+                               style=wx.YES_NO | wx.ICON_WARNING)
+        if dlg.ShowModal() == wx.ID_YES:
+            self.scc.delete(current)
+            self.refresh_scenarios()
+        dlg.Destroy()
+        self.panel.SetFocus()
+
+    # ---------------------------------------------------------------
+    # Auto replay
+    # ---------------------------------------------------------------
+    def __restore_auto_replay(self):
+        """Resume auto-replay if it was enabled in a previous session."""
+        try:
+            enabled = settings.CONFIG.getboolean('DEFAULT', 'Auto Replay')
+        except (ValueError, KeyError):
+            enabled = False
+        if enabled:
+            self.auto_button.SetValue(True)
+            self.arc.start()
+        self.__update_auto_status()
+
+    def on_auto_toggle(self, event):
+        """Enable or disable scheduled auto-replay."""
+        if self.auto_button.GetValue():
+            self.arc.start()
+        else:
+            self.arc.stop()
+        self.__update_auto_status()
+        self.panel.SetFocus()
+
+    def __update_auto_status(self):
+        if self.arc.is_running():
+            minutes = max(1, round(self.arc.interval_seconds() / 60))
+            self.auto_status.SetLabel(f"Rejeu automatique toutes les {minutes} min")
+        else:
+            self.auto_status.SetLabel("")
         self.Layout()
 
     def on_key_press(self, event):
@@ -298,6 +501,15 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
             btn_event.EventObject = self.save_button
             self.fsc.save_file(btn_event)
 
+        elif keycode == wx.WXK_ESCAPE:
+            # Two Escape presses within a second stop everything.
+            now = time.monotonic()
+            if now - self._last_esc <= 1.0:
+                self._last_esc = 0.0
+                self.stop_all()
+            else:
+                self._last_esc = now
+
         event.Skip()
 
     def on_thread_end(self, event):
@@ -305,9 +517,50 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
         self.remaining_plays.Label = str(event.count) if event.count > 0 else \
             str(settings.CONFIG.getint('DEFAULT', 'Repeat Count'))
         self.remaining_plays.Update()
+        # The replay is fully finished (input response validated): stop the
+        # chrono for this monitoring loop.
+        if not event.toggle_value:
+            self.monitor.end_loop()
+
+    def on_report(self, event):
+        """Display (and optionally save) the response-time report."""
+        dlg = ReportDialog(self, "Rapport de temps de réponse",
+                           self.monitor.report_text())
+        dlg.ShowModal()
+        dlg.Destroy()
+        self.panel.SetFocus()
+
+    # ---------------------------------------------------------------
+    # Stop everything (button + double-Escape)
+    # ---------------------------------------------------------------
+    def on_stop(self, event):
+        """Handler for the STOP button."""
+        self.stop_all()
+        self.panel.SetFocus()
+
+    def stop_all(self):
+        """Stop recording, auto-replay and any replay in progress."""
+        # Stop an ongoing recording.
+        if self.record_button.Value:
+            self.record_button.Value = False
+            btn_event = wx.CommandEvent(wx.wxEVT_TOGGLEBUTTON)
+            btn_event.EventObject = self.record_button
+            self.rbc.action(btn_event)
+        # Stop scheduled auto-replay.
+        if self.arc.is_running():
+            self.arc.stop()
+            self.auto_button.SetValue(False)
+            self.__update_auto_status()
+        # Stop a replay currently running.
+        if self.play_button.Value:
+            self.play_button.Value = False
+            btn_event = wx.CommandEvent(wx.wxEVT_TOGGLEBUTTON)
+            btn_event.EventObject = self.play_button
+            self.pbc.action(btn_event)
 
     def on_exit_app(self, event):
         """Clean exit saving the settings."""
+        self.arc.stop()
         settings.save_config()
         self.Destroy()
         self.taskbar.Destroy()
@@ -315,8 +568,8 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
     def on_close_dialog(self, event):
         """Confirm exit."""
         dialog = wx.MessageDialog(self,
-                                  message="Are you sure you want to quit?",
-                                  caption="Confirm Exit",
+                                  message="Voulez-vous vraiment quitter ?",
+                                  caption="Confirmer la fermeture",
                                   style=wx.YES_NO,
                                   pos=wx.DefaultPosition)
         response = dialog.ShowModal()
@@ -329,12 +582,17 @@ class MainDialog(wx.Dialog, wx.MiniFrame):
     def on_about(self, event):
         """About dialog."""
         info = wx.adv.AboutDialogInfo()
-        info.Name = "atbswp"
+        info.Name = APP_TITLE
         info.Version = f"{settings.VERSION}"
         info.Copyright = (f"©{settings.YEAR} Paul Mairo <github@rmpr.xyz>\n")
-        info.Description = "Record mouse and keyboard actions and reproduce them identically at will"
-        info.WebSite = ("https://github.com/atbswp", "Project homepage")
-        info.Developers = ["Paul Mairo"]
+        info.Description = (
+            "Enregistre les actions souris/clavier et les rejoue à l'identique.\n"
+            "Gestion de scénarios, rejeu automatique et monitoring du temps de "
+            "réponse.\nThème CHU inspiré du projet winghost-monitor ; "
+            "fork de atbswp (Paul Mairo).")
+        info.WebSite = ("https://github.com/pronoiaque/win-atbswp",
+                        "Page du projet")
+        info.Developers = ["Paul Mairo (atbswp)"]
         info.License = "GNU General Public License V3"
         info.Icon = self.icon
         wx.adv.AboutBox(info)

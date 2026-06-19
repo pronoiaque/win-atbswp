@@ -22,7 +22,7 @@ import shutil
 import sys
 import tempfile
 import time
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from threading import Event
 from threading import Thread
@@ -42,6 +42,15 @@ import wx.lib.newevent as NE
 
 TMP_PATH = os.path.join(tempfile.gettempdir(),
                         "atbswp-" + date.today().strftime("%Y%m%d"))
+SCENARIO_EXT = ".py"
+
+# Characters Windows forbids in file names, plus the reserved device names.
+# Scenario names are used verbatim as file names, so they must be validated.
+INVALID_SCENARIO_CHARS = '<>:"/\\|?*'
+RESERVED_SCENARIO_NAMES = {"CON", "PRN", "AUX", "NUL"} \
+    | {f"COM{i}" for i in range(1, 10)} \
+    | {f"LPT{i}" for i in range(1, 10)}
+
 HEADER = (
     f"#!/bin/env python3\n"
     f"# Created by atbswp v{settings.VERSION} "
@@ -79,7 +88,7 @@ class FileChooserCtrl:
 
     def load_file(self, event):
         """Load a capture manually chosen by the user."""
-        title = "Choose a capture file:"
+        title = "Choisir un fichier capture :"
         dlg = wx.FileDialog(self.parent,
                             message=title,
                             defaultDir="~",
@@ -89,6 +98,10 @@ class FileChooserCtrl:
             self._capture = self.load_content(dlg.GetPath())
             with open(TMP_PATH, 'w') as f:
                 f.write(self._capture)
+            # Mirror the loaded capture into the active scenario, if any.
+            parent = event.EventObject.Parent
+            if getattr(parent, "scc", None) is not None:
+                parent.scc.persist()
         event.EventObject.Parent.panel.SetFocus()
         dlg.Destroy()
 
@@ -96,7 +109,7 @@ class FileChooserCtrl:
         """Save the capture currently loaded."""
         event.EventObject.Parent.panel.SetFocus()
 
-        with wx.FileDialog(self.parent, "Save capture file", wildcard="*",
+        with wx.FileDialog(self.parent, "Enregistrer le fichier capture", wildcard="*",
                            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as fileDialog:
 
             if fileDialog.ShowModal() == wx.ID_CANCEL:
@@ -107,7 +120,7 @@ class FileChooserCtrl:
             try:
                 shutil.copy(TMP_PATH, pathname)
             except IOError:
-                wx.LogError(f"Cannot save current data in file {pathname}.")
+                wx.LogError(f"Impossible d'enregistrer les données dans le fichier {pathname}.")
 
 
 class RecordCtrl:
@@ -241,7 +254,7 @@ class RecordCtrl:
                 self.write_mouse_action(
                     move="mouseDown", parameters=f"{x}, {y}, 'middle'")
             else:
-                wx.LogError("Mouse Button not recognized")
+                wx.LogError("Bouton de souris non reconnu")
         else:
             if button == mouse.Button.left:
                 self.write_mouse_action(
@@ -253,7 +266,7 @@ class RecordCtrl:
                 self.write_mouse_action(
                     move="mouseUp", parameters=f"{x}, {y}, 'middle'")
             else:
-                wx.LogError("Mouse Button not recognized")
+                wx.LogError("Bouton de souris non reconnu")
 
     def on_scroll(self, x, y, dx, dy):
         """Triggered by a mouse wheel scroll."""
@@ -369,6 +382,10 @@ class RecordCtrl:
             self._capture = [self._header]
             recording_state = wx.Icon(
                 os.path.join(self.path, "img", "icon.png"))
+            # Persist the freshly recorded capture into the active scenario.
+            parent = event.GetEventObject().GetParent()
+            if getattr(parent, "scc", None) is not None:
+                parent.scc.persist()
         event.GetEventObject().GetParent().taskbar.SetIcon(recording_state)
 
     def update_timer(self, event):
@@ -424,7 +441,7 @@ class PlayCtrl:
                 self.count = settings.CONFIG.getint('DEFAULT', 'Repeat Count')
                 self.count_was_updated = True
             if TMP_PATH is None or not os.path.isfile(TMP_PATH):
-                wx.LogError("No capture loaded")
+                wx.LogError("Aucune capture chargée")
                 event = self.ThreadEndEvent(
                     count=self.count, toggle_value=False)
                 wx.PostEvent(toggle_button.Parent, event)
@@ -459,7 +476,7 @@ class CompileCtrl:
         try:
             bytecode_path = py_compile.compile(TMP_PATH)
         except:
-            wx.LogError("No capture loaded")
+            wx.LogError("Aucune capture chargée")
             return
         default_file = "capture.pyc"
         event.EventObject.Parent.panel.SetFocus()
@@ -473,7 +490,7 @@ class CompileCtrl:
             try:
                 shutil.copy(bytecode_path, pathname)
             except IOError:
-                wx.LogError(f"Cannot save current data in file {pathname}.")
+                wx.LogError(f"Impossible d'enregistrer les données dans le fichier {pathname}.")
 
 
 class SettingsCtrl:
@@ -500,8 +517,8 @@ class SettingsCtrl:
     def repeat_count(self, event):
         """Set the repeat count."""
         current_value = settings.CONFIG.getint('DEFAULT', 'Repeat Count')
-        dialog = wx.NumberEntryDialog(None, message="Choose a repeat count",
-                                      prompt="", caption="Repeat Count", value=current_value, min=1, max=999)
+        dialog = wx.NumberEntryDialog(None, message="Nombre de répétitions",
+                                      prompt="", caption="Nombre de répétitions", value=current_value, min=1, max=999)
         dialog.ShowModal()
         new_value = str(dialog.Value)
         dialog.Destroy()
@@ -512,13 +529,13 @@ class SettingsCtrl:
     def recording_hotkey(event):
         """Set the recording hotkey."""
         current_value = settings.CONFIG.getint('DEFAULT', 'Recording Hotkey')
-        dialog = SliderDialog(None, title="Choose a function key: F2-12", size=(500, 50),
+        dialog = SliderDialog(None, title="Choisissez une touche de fonction : F2-12", size=(500, 50),
                               default_value=current_value-339, min_value=2, max_value=12)
         dialog.ShowModal()
         new_value = dialog.value + 339
         if new_value == settings.CONFIG.getint('DEFAULT', 'Playback Hotkey'):
             dlg = wx.MessageDialog(
-                None, "Recording hotkey should be different from Playback one", "Error", wx.OK | wx.ICON_ERROR)
+                None, "La touche d'enregistrement doit être différente de celle de lecture", "Erreur", wx.OK | wx.ICON_ERROR)
             dlg.ShowModal()
             dlg.Destroy()
         dialog.Destroy()
@@ -528,13 +545,13 @@ class SettingsCtrl:
     def playback_hotkey(event):
         """Set the playback hotkey."""
         current_value = settings.CONFIG.getint('DEFAULT', 'Playback Hotkey')
-        dialog = SliderDialog(None, title="Choose a function key: F2-12", size=(500, 50),
+        dialog = SliderDialog(None, title="Choisissez une touche de fonction : F2-12", size=(500, 50),
                               default_value=current_value-339, min_value=2, max_value=12)
         dialog.ShowModal()
         new_value = dialog.value + 339
         if new_value == settings.CONFIG.getint('DEFAULT', 'Recording Hotkey'):
             dlg = wx.MessageDialog(
-                None, "Playback hotkey should be different from Recording one", "Error", wx.OK | wx.ICON_ERROR)
+                None, "La touche de lecture doit être différente de celle d'enregistrement", "Erreur", wx.OK | wx.ICON_ERROR)
             dlg.ShowModal()
             dlg.Destroy()
         dialog.Destroy()
@@ -547,6 +564,25 @@ class SettingsCtrl:
         self.main_dialog.SetWindowStyle(style ^ wx.STAY_ON_TOP)
         settings.CONFIG['DEFAULT']['Always On Top'] = str(not current_value)
 
+    @staticmethod
+    def auto_replay_interval(event):
+        """Set the interval between two automatic replays (in minutes)."""
+        try:
+            current_seconds = settings.CONFIG.getint(
+                "DEFAULT", "Auto Replay Interval")
+        except (ValueError, KeyError):
+            current_seconds = 1800
+        current_minutes = max(1, round(current_seconds / 60))
+        dialog = wx.NumberEntryDialog(
+            None, message="Intervalle entre deux rejeux automatiques (minutes)",
+            prompt="", caption="Intervalle de rejeu automatique",
+            value=current_minutes, min=1, max=1440)
+        dialog.ShowModal()
+        new_minutes = dialog.Value
+        dialog.Destroy()
+        settings.CONFIG["DEFAULT"]["Auto Replay Interval"] = str(new_minutes * 60)
+        settings.save_config()
+
     def language(self, event):
         """Manage the language among the one available."""
         menu = event.EventObject
@@ -554,7 +590,7 @@ class SettingsCtrl:
         settings.CONFIG['DEFAULT']['Language'] = item.GetItemLabelText()
         settings.save_config()
         dialog = wx.MessageDialog(None,
-                                  message="Restart the program to apply modifications",
+                                  message="Redémarrez le programme pour appliquer les modifications",
                                   pos=wx.DefaultPosition)
         dialog.ShowModal()
 
@@ -581,3 +617,292 @@ class PlayThread(Thread):
 
     def ended(self):
         return self._end.isSet()
+
+
+class ScenarioCtrl:
+    """Manage named scenarios (sessions).
+
+    A scenario is simply a saved capture stored under
+    ``settings.SCENARIOS_DIR``. Selecting a scenario loads its capture as the
+    current working capture (``TMP_PATH``) so the existing record/play logic
+    keeps working unchanged. Recording or loading a file while a scenario is
+    active updates that scenario on disk.
+    """
+
+    def __init__(self, main_dialog):
+        self.main_dialog = main_dialog
+
+    @staticmethod
+    def list_scenarios():
+        """Return the sorted list of existing scenario names."""
+        try:
+            files = os.listdir(settings.SCENARIOS_DIR)
+        except OSError:
+            return []
+        names = [os.path.splitext(f)[0]
+                 for f in files if f.endswith(SCENARIO_EXT)]
+        return sorted(names, key=str.lower)
+
+    @staticmethod
+    def scenario_path(name):
+        """Return the on-disk path of a scenario given its name."""
+        return os.path.join(settings.SCENARIOS_DIR, name + SCENARIO_EXT)
+
+    @staticmethod
+    def is_valid_name(name):
+        """Reject names that are not valid (Windows) file names."""
+        name = name.strip()
+        if not name:
+            return False
+        if any(c in INVALID_SCENARIO_CHARS for c in name):
+            return False
+        if any(ord(c) < 32 for c in name):
+            return False
+        # Windows disallows names ending with a dot or a space.
+        if name.endswith(".") or name.endswith(" "):
+            return False
+        if name.upper() in RESERVED_SCENARIO_NAMES:
+            return False
+        return True
+
+    @property
+    def current(self):
+        return settings.CONFIG.get("DEFAULT", "Current Scenario")
+
+    def _set_current(self, name):
+        settings.CONFIG["DEFAULT"]["Current Scenario"] = name or ""
+        settings.save_config()
+
+    def load(self, name):
+        """Make ``name`` the active scenario and load its capture."""
+        path = self.scenario_path(name)
+        if os.path.isfile(path):
+            shutil.copy(path, TMP_PATH)
+        self._set_current(name)
+
+    def persist(self):
+        """Save the current working capture into the active scenario file."""
+        name = self.current
+        if not name or not os.path.isfile(TMP_PATH):
+            return
+        try:
+            shutil.copy(TMP_PATH, self.scenario_path(name))
+        except IOError:
+            wx.LogError("Cannot save the current scenario")
+
+    def create(self, name):
+        """Create an empty scenario and make it the active one."""
+        name = name.strip()
+        if not self.is_valid_name(name):
+            wx.LogError(
+                "Invalid scenario name. Avoid the characters "
+                f"{INVALID_SCENARIO_CHARS} and reserved names.")
+            return False
+        path = self.scenario_path(name)
+        if os.path.exists(path):
+            wx.LogError(f"A scenario named '{name}' already exists")
+            return False
+        with open(path, "w") as f:
+            f.write(HEADER)
+        # Reset the working capture so the new (empty) scenario is loaded.
+        shutil.copy(path, TMP_PATH)
+        self._set_current(name)
+        return True
+
+    def delete(self, name):
+        """Delete a scenario from disk."""
+        path = self.scenario_path(name)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        if self.current == name:
+            self._set_current("")
+
+    def rename(self, old, new):
+        """Rename a scenario, keeping it active if it was."""
+        new = new.strip()
+        if not self.is_valid_name(new):
+            wx.LogError(
+                "Invalid scenario name. Avoid the characters "
+                f"{INVALID_SCENARIO_CHARS} and reserved names.")
+            return False
+        new_path = self.scenario_path(new)
+        if os.path.exists(new_path):
+            wx.LogError(f"A scenario named '{new}' already exists")
+            return False
+        try:
+            os.rename(self.scenario_path(old), new_path)
+        except OSError:
+            return False
+        if self.current == old:
+            self._set_current(new)
+        return True
+
+
+class AutoReplayCtrl:
+    """Replay the active capture automatically on a fixed schedule.
+
+    The interval is configurable (default 30 minutes). The first replay is
+    fired immediately when auto-replay is enabled, then it repeats every
+    ``Auto Replay Interval`` seconds until it is disabled.
+    """
+
+    def __init__(self, main_dialog):
+        self.main_dialog = main_dialog
+        self.timer = wx.Timer(main_dialog)
+        main_dialog.Bind(wx.EVT_TIMER, self.on_tick, self.timer)
+
+    @staticmethod
+    def interval_seconds():
+        try:
+            return max(1, settings.CONFIG.getint("DEFAULT", "Auto Replay Interval"))
+        except (ValueError, KeyError):
+            return 1800
+
+    def start(self):
+        settings.CONFIG["DEFAULT"]["Auto Replay"] = "True"
+        interval = self.interval_seconds()
+        # Start a fresh monitoring session for this auto-replay run.
+        self.main_dialog.monitor.reset(
+            settings.CONFIG.get("DEFAULT", "Current Scenario"), interval)
+        self.timer.Start(interval * 1000)
+        # Fire a first replay right away.
+        self._trigger_replay()
+
+    def stop(self):
+        settings.CONFIG["DEFAULT"]["Auto Replay"] = "False"
+        if self.timer.IsRunning():
+            self.timer.Stop()
+
+    def is_running(self):
+        return self.timer.IsRunning()
+
+    def on_tick(self, event):
+        self._trigger_replay()
+
+    def _trigger_replay(self):
+        """Programmatically press the Play button (unless already playing)."""
+        play_button = self.main_dialog.play_button
+        if play_button.Value:
+            # A replay is already in progress, skip this tick.
+            return
+        # Start the chrono for this loop, then press Play.
+        self.main_dialog.monitor.start_loop()
+        play_button.Value = True
+        btn_event = wx.CommandEvent(wx.wxEVT_TOGGLEBUTTON)
+        btn_event.EventObject = play_button
+        self.main_dialog.pbc.action(btn_event)
+
+
+def format_duration(seconds):
+    """Human-friendly duration: seconds below a minute, minutes above."""
+    if seconds < 60:
+        value = f"{seconds:.1f}".rstrip("0").rstrip(".")
+        return f"{value} s"
+    value = f"{seconds / 60:.1f}".rstrip("0").rstrip(".")
+    return f"{value} min"
+
+
+class MonitorCtrl:
+    """Measure the response time of a scenario, one auto-replay loop at a time.
+
+    Rather than timing every individual action (brittle and noisy), the chrono
+    starts when a loop begins and stops when the replay completes (the input's
+    response is validated). Each loop is reported with its scheduled window
+    (based on the auto-replay interval) and its measured duration.
+    """
+
+    def __init__(self):
+        self.scenario = ""
+        self.interval = 1800
+        self.loops = []          # list of {index, start, end, duration}
+        self._loop_start = None
+        self.session_file = None
+
+    def reset(self, scenario, interval):
+        """Begin a fresh monitoring session and open its on-disk log."""
+        self.scenario = scenario or "(aucun)"
+        self.interval = interval
+        self.loops = []
+        self._loop_start = None
+        self._open_session_file()
+
+    def _open_session_file(self):
+        """Create the CSV log file for this session and write its header."""
+        self.session_file = None
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{self.scenario}_{stamp}.csv"
+        path = os.path.join(settings.REPORTS_DIR, filename)
+        try:
+            # utf-8-sig so Excel shows the accents correctly.
+            with open(path, "w", encoding="utf-8-sig", newline="") as f:
+                interval_min = max(1, round(self.interval / 60))
+                f.write(f"# Scénario;{self.scenario}\n")
+                f.write(f"# Intervalle (min);{interval_min}\n")
+                f.write("boucle;début;fin;durée (s);temps de réponse\n")
+            self.session_file = path
+        except OSError:
+            self.session_file = None
+
+    def start_loop(self):
+        """Mark the beginning of a loop (chrono start)."""
+        self._loop_start = datetime.now()
+
+    def end_loop(self):
+        """Mark the end of the current loop (chrono stop), record and save it."""
+        if self._loop_start is None:
+            return
+        end = datetime.now()
+        loop = {
+            "index": len(self.loops) + 1,
+            "start": self._loop_start,
+            "end": end,
+            "duration": (end - self._loop_start).total_seconds(),
+        }
+        self.loops.append(loop)
+        self._loop_start = None
+        self._append_loop(loop)
+
+    def _append_loop(self, loop):
+        """Append one loop to the session CSV as soon as it completes."""
+        if not self.session_file:
+            return
+        try:
+            with open(self.session_file, "a", encoding="utf-8-sig",
+                      newline="") as f:
+                f.write(
+                    f'{loop["index"]};'
+                    f'{loop["start"]:%Y-%m-%d %H:%M:%S};'
+                    f'{loop["end"]:%Y-%m-%d %H:%M:%S};'
+                    f'{loop["duration"]:.1f};'
+                    f'{format_duration(loop["duration"])}\n')
+        except OSError:
+            pass
+
+    def has_data(self):
+        return bool(self.loops)
+
+    def report_text(self):
+        """Build the textual response-time report."""
+        interval_min = max(1, round(self.interval / 60))
+        header = (f'Scénario "{self.scenario}" ; {len(self.loops)} '
+                  f'boucle(s) de {interval_min} minutes (auto-play interval)')
+        lines = [header, ""]
+        if not self.loops:
+            lines.append("Aucune boucle enregistrée pour le moment.")
+            return "\n".join(lines)
+        for loop in self.loops:
+            window_end = loop["start"] + timedelta(seconds=self.interval)
+            lines.append(
+                f'Boucle {loop["index"]} : '
+                f'de {loop["start"]:%H:%M} à {window_end:%H:%M} '
+                f'-> {format_duration(loop["duration"])}')
+        # A short summary line with the average response time.
+        avg = sum(loop["duration"] for loop in self.loops) / len(self.loops)
+        lines.append("")
+        lines.append(f"Temps de réponse moyen : {format_duration(avg)}")
+        if self.session_file:
+            lines.append("")
+            lines.append(f"Données enregistrées dans : {self.session_file}")
+        return "\n".join(lines)
